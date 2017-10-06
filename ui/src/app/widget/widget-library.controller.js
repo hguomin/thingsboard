@@ -13,6 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+import AliasController from '../api/alias-controller';
+
 /* eslint-disable import/no-unresolved, import/default */
 
 import selectWidgetTypeTemplate from './select-widget-type.tpl.html';
@@ -20,8 +23,9 @@ import selectWidgetTypeTemplate from './select-widget-type.tpl.html';
 /* eslint-enable import/no-unresolved, import/default */
 
 /*@ngInject*/
-export default function WidgetLibraryController($scope, $rootScope, $q, widgetService, userService,
-                                                $state, $stateParams, $document, $mdDialog, $translate, $filter, types) {
+export default function WidgetLibraryController($scope, $rootScope, $q, widgetService, userService, importExport,
+                                                $state, $stateParams, $document, $mdDialog, $translate, $filter,
+                                                utils, types, entityService) {
 
     var vm = this;
 
@@ -31,11 +35,21 @@ export default function WidgetLibraryController($scope, $rootScope, $q, widgetSe
     vm.widgetTypes = [];
     vm.dashboardInitComplete = false;
 
+    var stateController = {
+        getStateParams: function() {
+            return {};
+        }
+    };
+    vm.aliasController = new AliasController($scope, $q, $filter, utils,
+        types, entityService, stateController, {});
+
     vm.noData = noData;
     vm.dashboardInited = dashboardInited;
     vm.dashboardInitFailed = dashboardInitFailed;
     vm.addWidgetType = addWidgetType;
     vm.openWidgetType = openWidgetType;
+    vm.exportWidgetType = exportWidgetType;
+    vm.importWidgetType = importWidgetType;
     vm.removeWidgetType = removeWidgetType;
     vm.loadWidgetLibrary = loadWidgetLibrary;
     vm.addWidgetType = addWidgetType;
@@ -85,7 +99,7 @@ export default function WidgetLibraryController($scope, $rootScope, $q, widgetSe
                                     var sizeX = 8;
                                     var sizeY = Math.floor(widgetTypeInfo.sizeY);
                                     var widget = {
-                                        id: widgetType.id,
+                                        typeId: widgetType.id,
                                         isSystemType: isSystem,
                                         bundleAlias: bundleAlias,
                                         typeAlias: widgetTypeInfo.alias,
@@ -156,7 +170,7 @@ export default function WidgetLibraryController($scope, $rootScope, $q, widgetSe
         }
         if (widget) {
             $state.go('home.widgets-bundles.widget-types.widget-type',
-                {widgetTypeId: widget.id.id});
+                {widgetTypeId: widget.typeId.id});
         } else {
             $mdDialog.show({
                 controller: 'SelectWidgetTypeController',
@@ -171,6 +185,21 @@ export default function WidgetLibraryController($scope, $rootScope, $q, widgetSe
             }, function () {
             });
         }
+    }
+
+    function exportWidgetType(event, widget) {
+        event.stopPropagation();
+        importExport.exportWidgetType(widget.typeId.id);
+    }
+
+    function importWidgetType($event) {
+        $event.stopPropagation();
+        importExport.importWidgetType($event, vm.widgetsBundle.alias).then(
+            function success() {
+                $state.go($state.current, $state.params, {reload: true});
+            },
+            function fail() {}
+        );
     }
 
     function removeWidgetType(event, widget) {

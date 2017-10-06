@@ -36,6 +36,7 @@ import org.thingsboard.server.exception.ThingsboardException;
 import org.thingsboard.server.service.mail.MailService;
 import org.thingsboard.server.service.security.auth.jwt.RefreshTokenRepository;
 import org.thingsboard.server.service.security.model.SecurityUser;
+import org.thingsboard.server.service.security.model.UserPrincipal;
 import org.thingsboard.server.service.security.model.token.JwtToken;
 import org.thingsboard.server.service.security.model.token.JwtTokenFactory;
 
@@ -58,9 +59,6 @@ public class AuthController extends BaseController {
 
     @Autowired
     private RefreshTokenRepository refreshTokenRepository;
-
-    @Autowired
-    private UserService userService;
 
     @Autowired
     private MailService mailService;
@@ -102,13 +100,13 @@ public class AuthController extends BaseController {
         HttpStatus responseStatus;
         UserCredentials userCredentials = userService.findUserCredentialsByActivateToken(activateToken);
         if (userCredentials != null) {
-            String createPasswordURI = "/login/createPassword";
+            String createURI = "/login/createPassword";
             try {
-                URI location = new URI(createPasswordURI + "?activateToken=" + activateToken);
+                URI location = new URI(createURI + "?activateToken=" + activateToken);
                 headers.setLocation(location);
-                responseStatus = HttpStatus.PERMANENT_REDIRECT;
+                responseStatus = HttpStatus.SEE_OTHER;
             } catch (URISyntaxException e) {
-                log.error("Unable to create URI with address [{}]", createPasswordURI);
+                log.error("Unable to create URI with address [{}]", createURI);
                 responseStatus = HttpStatus.BAD_REQUEST;
             }
         } else {
@@ -125,10 +123,10 @@ public class AuthController extends BaseController {
         try {
             UserCredentials userCredentials = userService.requestPasswordReset(email);
             String baseUrl = constructBaseUrl(request);
-            String resetPasswordUrl = String.format("%s/api/noauth/resetPassword?resetToken=%s", baseUrl,
+            String resetUrl = String.format("%s/api/noauth/resetPassword?resetToken=%s", baseUrl,
                     userCredentials.getResetToken());
             
-            mailService.sendResetPasswordEmail(resetPasswordUrl, email);
+            mailService.sendResetPasswordEmail(resetUrl, email);
         } catch (Exception e) {
             throw handleException(e);
         }
@@ -139,15 +137,15 @@ public class AuthController extends BaseController {
             @RequestParam(value = "resetToken") String resetToken) {
         HttpHeaders headers = new HttpHeaders();
         HttpStatus responseStatus;
-        String resetPasswordURI = "/login/resetPassword";
+        String resetURI = "/login/resetPassword";
         UserCredentials userCredentials = userService.findUserCredentialsByResetToken(resetToken);
         if (userCredentials != null) {
             try {
-                URI location = new URI(resetPasswordURI + "?resetToken=" + resetToken);
+                URI location = new URI(resetURI + "?resetToken=" + resetToken);
                 headers.setLocation(location);
-                responseStatus = HttpStatus.PERMANENT_REDIRECT;
+                responseStatus = HttpStatus.SEE_OTHER;
             } catch (URISyntaxException e) {
-                log.error("Unable to create URI with address [{}]", resetPasswordURI);
+                log.error("Unable to create URI with address [{}]", resetURI);
                 responseStatus = HttpStatus.BAD_REQUEST;
             }
         } else {
@@ -167,11 +165,17 @@ public class AuthController extends BaseController {
             String encodedPassword = passwordEncoder.encode(password);
             UserCredentials credentials = userService.activateUserCredentials(activateToken, encodedPassword);
             User user = userService.findUserById(credentials.getUserId());
-            SecurityUser securityUser = new SecurityUser(user, credentials.isEnabled());
+            UserPrincipal principal = new UserPrincipal(UserPrincipal.Type.USER_NAME, user.getEmail());
+            SecurityUser securityUser = new SecurityUser(user, credentials.isEnabled(), principal);
             String baseUrl = constructBaseUrl(request);
             String loginUrl = String.format("%s/login", baseUrl);
             String email = user.getEmail();
-            mailService.sendAccountActivatedEmail(loginUrl, email);
+
+            try {
+                mailService.sendAccountActivatedEmail(loginUrl, email);
+            } catch (Exception e) {
+                log.info("Unable to send account activation email [{}]", e.getMessage());
+            }
 
             JwtToken accessToken = tokenFactory.createAccessJwtToken(securityUser);
             JwtToken refreshToken = refreshTokenRepository.requestRefreshToken(securityUser);
@@ -201,7 +205,8 @@ public class AuthController extends BaseController {
                 userCredentials.setResetToken(null);
                 userCredentials = userService.saveUserCredentials(userCredentials);
                 User user = userService.findUserById(userCredentials.getUserId());
-                SecurityUser securityUser = new SecurityUser(user, userCredentials.isEnabled());
+                UserPrincipal principal = new UserPrincipal(UserPrincipal.Type.USER_NAME, user.getEmail());
+                SecurityUser securityUser = new SecurityUser(user, userCredentials.isEnabled(), principal);
                 String baseUrl = constructBaseUrl(request);
                 String loginUrl = String.format("%s/login", baseUrl);
                 String email = user.getEmail();

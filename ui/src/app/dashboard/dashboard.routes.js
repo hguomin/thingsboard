@@ -62,11 +62,12 @@ export default function DashboardRoutes($stateProvider) {
                 pageTitle: 'customer.dashboards'
             },
             ncyBreadcrumb: {
-                label: '{"icon": "dashboard", "label": "customer.dashboards"}'
+                label: '{"icon": "dashboard", "label": "{{ vm.customerDashboardsTitle }}", "translate": "false"}'
             }
         })
         .state('home.dashboards.dashboard', {
-            url: '/:dashboardId',
+            url: '/:dashboardId?state',
+            reloadOnSearch: false,
             module: 'private',
             auth: ['TENANT_ADMIN', 'CUSTOMER_USER'],
             views: {
@@ -86,7 +87,8 @@ export default function DashboardRoutes($stateProvider) {
             }
         })
         .state('home.customers.dashboards.dashboard', {
-            url: '/:dashboardId',
+            url: '/:dashboardId?state',
+            reloadOnSearch: false,
             module: 'private',
             auth: ['TENANT_ADMIN', 'CUSTOMER_USER'],
             views: {

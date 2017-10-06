@@ -16,9 +16,14 @@
 
 export default class DataAggregator {
 
-    constructor(onDataCb, tsKeyNames, startTs, limit, aggregationType, timeWindow, interval, types, $timeout, $filter) {
+    constructor(onDataCb, tsKeyNames, startTs, limit, aggregationType, timeWindow, interval,
+                stateData, types, $timeout, $filter) {
         this.onDataCb = onDataCb;
         this.tsKeyNames = tsKeyNames;
+        this.dataBuffer = {};
+        for (var k = 0; k < tsKeyNames.length; k++) {
+            this.dataBuffer[tsKeyNames[k]] = [];
+        }
         this.startTs = startTs;
         this.aggregationType = aggregationType;
         this.types = types;
@@ -30,6 +35,10 @@ export default class DataAggregator {
         this.limit = limit;
         this.timeWindow = timeWindow;
         this.interval = interval;
+        this.stateData = stateData;
+        if (this.stateData) {
+            this.lastPrevKvPairData = {};
+        }
         this.aggregationTimeout = Math.max(this.interval, 1000);
         switch (aggregationType) {
             case types.aggregation.min.value:
@@ -120,14 +129,14 @@ export default class DataAggregator {
             if (delta || !this.data) {
                 this.startTs += delta * this.interval;
                 this.endTs += delta * this.interval;
-                this.data = toData(this.tsKeyNames, this.aggregationMap, this.startTs, this.endTs, this.$filter, this.limit);
+                this.data = this.updateData();
                 this.elapsed = this.elapsed - delta * this.interval;
             }
         } else {
-            this.data = toData(this.tsKeyNames, this.aggregationMap, this.startTs, this.endTs, this.$filter, this.limit);
+            this.data = this.updateData();
         }
         if (this.onDataCb) {
-            this.onDataCb(this.data, this.startTs, this.endTs, apply);
+            this.onDataCb(this.data, apply);
         }
 
         var self = this;
@@ -135,6 +144,66 @@ export default class DataAggregator {
             this.intervalTimeoutHandle = this.$timeout(function() {
                 self.onInterval();
             }, this.aggregationTimeout, false);
+        }
+    }
+
+    updateData() {
+        for (var k = 0; k < this.tsKeyNames.length; k++) {
+            this.dataBuffer[this.tsKeyNames[k]] = [];
+        }
+        for (var key in this.aggregationMap) {
+            var aggKeyData = this.aggregationMap[key];
+            var keyData = this.dataBuffer[key];
+            for (var aggTimestamp in aggKeyData) {
+                if (aggTimestamp <= this.startTs) {
+                    if (this.stateData &&
+                        (!this.lastPrevKvPairData[key] || this.lastPrevKvPairData[key][0] < aggTimestamp)) {
+                        this.lastPrevKvPairData[key] = [Number(aggTimestamp), aggKeyData[aggTimestamp].aggValue];
+                    }
+                    delete aggKeyData[aggTimestamp];
+                } else if (aggTimestamp <= this.endTs) {
+                    var aggData = aggKeyData[aggTimestamp];
+                    var kvPair = [Number(aggTimestamp), aggData.aggValue];
+                    keyData.push(kvPair);
+                }
+            }
+            keyData = this.$filter('orderBy')(keyData, '+this[0]');
+            if (this.stateData) {
+                this.updateStateBounds(keyData, angular.copy(this.lastPrevKvPairData[key]));
+            }
+            if (keyData.length > this.limit) {
+                keyData = keyData.slice(keyData.length - this.limit);
+            }
+            this.dataBuffer[key] = keyData;
+        }
+        return this.dataBuffer;
+    }
+
+    updateStateBounds(keyData, lastPrevKvPair) {
+        if (lastPrevKvPair) {
+            lastPrevKvPair[0] = this.startTs;
+        }
+        var firstKvPair;
+        if (!keyData.length) {
+            if (lastPrevKvPair) {
+                firstKvPair = lastPrevKvPair;
+                keyData.push(firstKvPair);
+            }
+        } else {
+            firstKvPair = keyData[0];
+        }
+        if (firstKvPair && firstKvPair[0] > this.startTs) {
+            if (lastPrevKvPair) {
+                keyData.unshift(lastPrevKvPair);
+            }
+        }
+        if (keyData.length) {
+            var lastKvPair = keyData[keyData.length-1];
+            if (lastKvPair[0] < this.endTs) {
+                lastKvPair = angular.copy(lastKvPair);
+                lastKvPair[0] = this.endTs;
+                keyData.push(lastKvPair);
+            }
         }
     }
 
@@ -164,7 +233,7 @@ function processAggregatedData(data, isCount, noAggregation) {
             aggregationMap[key] = aggKeyData;
         }
         var keyData = data[key];
-        for (var i in keyData) {
+        for (var i = 0; i < keyData.length; i++) {
             var kvPair = keyData[i];
             var timestamp = kvPair[0];
             var value = convertValue(kvPair[1], noAggregation);
@@ -188,7 +257,7 @@ function updateAggregatedData(aggregationMap, isCount, noAggregation, aggFunctio
             aggregationMap[key] = aggKeyData;
         }
         var keyData = data[key];
-        for (var i in keyData) {
+        for (var i = 0; i < keyData.length; i++) {
             var kvPair = keyData[i];
             var timestamp = kvPair[0];
             var value = convertValue(kvPair[1], noAggregation);
@@ -206,32 +275,6 @@ function updateAggregatedData(aggregationMap, isCount, noAggregation, aggFunctio
             }
         }
     }
-}
-
-function toData(tsKeyNames, aggregationMap, startTs, endTs, $filter, limit) {
-    var data = {};
-    for (var k in tsKeyNames) {
-        data[tsKeyNames[k]] = [];
-    }
-    for (var key in aggregationMap) {
-        var aggKeyData = aggregationMap[key];
-        var keyData = data[key];
-        for (var aggTimestamp in aggKeyData) {
-            if (aggTimestamp <= startTs) {
-                delete aggKeyData[aggTimestamp];
-            } else if (aggTimestamp <= endTs) {
-                var aggData = aggKeyData[aggTimestamp];
-                var kvPair = [Number(aggTimestamp), aggData.aggValue];
-                keyData.push(kvPair);
-            }
-        }
-        keyData = $filter('orderBy')(keyData, '+this[0]');
-        if (keyData.length > limit) {
-            keyData = keyData.slice(keyData.length - limit);
-        }
-        data[key] = keyData;
-    }
-    return data;
 }
 
 function convertValue(value, noAggregation) {

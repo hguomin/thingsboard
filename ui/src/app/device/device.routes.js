@@ -20,7 +20,7 @@ import devicesTemplate from './devices.tpl.html';
 /* eslint-enable import/no-unresolved, import/default */
 
 /*@ngInject*/
-export default function DeviceRoutes($stateProvider) {
+export default function DeviceRoutes($stateProvider, types) {
     $stateProvider
         .state('home.devices', {
             url: '/devices',
@@ -37,6 +37,8 @@ export default function DeviceRoutes($stateProvider) {
             data: {
                 devicesType: 'tenant',
                 searchEnabled: true,
+                searchByEntitySubtype: true,
+                searchEntityType: types.entityType.device,
                 pageTitle: 'device.devices'
             },
             ncyBreadcrumb: {
@@ -58,10 +60,12 @@ export default function DeviceRoutes($stateProvider) {
             data: {
                 devicesType: 'customer',
                 searchEnabled: true,
+                searchByEntitySubtype: true,
+                searchEntityType: types.entityType.device,
                 pageTitle: 'customer.devices'
             },
             ncyBreadcrumb: {
-                label: '{"icon": "devices_other", "label": "customer.devices"}'
+                label: '{"icon": "devices_other", "label": "{{ vm.customerDevicesTitle }}", "translate": "false"}'
             }
         });
 

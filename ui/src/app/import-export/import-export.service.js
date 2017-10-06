@@ -16,7 +16,7 @@
 /* eslint-disable import/no-unresolved, import/default */
 
 import importDialogTemplate from './import-dialog.tpl.html';
-import deviceAliasesTemplate from '../dashboard/device-aliases.tpl.html';
+import entityAliasesTemplate from '../entity/alias/entity-aliases.tpl.html';
 
 /* eslint-enable import/no-unresolved, import/default */
 
@@ -24,116 +24,471 @@ import deviceAliasesTemplate from '../dashboard/device-aliases.tpl.html';
 /* eslint-disable no-undef, angular/window-service, angular/document-service */
 
 /*@ngInject*/
-export default function ImportExport($log, $translate, $q, $mdDialog, $document, itembuffer, deviceService, dashboardService, toast) {
+export default function ImportExport($log, $translate, $q, $mdDialog, $document, itembuffer, utils, types, dashboardUtils,
+                                     entityService, dashboardService, pluginService, ruleService, widgetService, toast) {
 
 
     var service = {
         exportDashboard: exportDashboard,
         importDashboard: importDashboard,
         exportWidget: exportWidget,
-        importWidget: importWidget
+        importWidget: importWidget,
+        exportPlugin: exportPlugin,
+        importPlugin: importPlugin,
+        exportRule: exportRule,
+        importRule: importRule,
+        exportWidgetType: exportWidgetType,
+        importWidgetType: importWidgetType,
+        exportWidgetsBundle: exportWidgetsBundle,
+        importWidgetsBundle: importWidgetsBundle
     }
 
     return service;
 
+    // Widgets bundle functions
+
+    function exportWidgetsBundle(widgetsBundleId) {
+        widgetService.getWidgetsBundle(widgetsBundleId).then(
+            function success(widgetsBundle) {
+                var bundleAlias = widgetsBundle.alias;
+                var isSystem = widgetsBundle.tenantId.id === types.id.nullUid;
+                widgetService.getBundleWidgetTypes(bundleAlias, isSystem).then(
+                    function success (widgetTypes) {
+                        prepareExport(widgetsBundle);
+                        var widgetsBundleItem = {
+                           widgetsBundle:  prepareExport(widgetsBundle),
+                           widgetTypes: []
+                        };
+                        for (var t in widgetTypes) {
+                            var widgetType = widgetTypes[t];
+                            if (angular.isDefined(widgetType.bundleAlias)) {
+                                delete widgetType.bundleAlias;
+                            }
+                            widgetsBundleItem.widgetTypes.push(prepareExport(widgetType));
+                        }
+                        var name = widgetsBundle.title;
+                        name = name.toLowerCase().replace(/\W/g,"_");
+                        exportToPc(widgetsBundleItem, name + '.json');
+                    },
+                    function fail (rejection) {
+                        var message = rejection;
+                        if (!message) {
+                            message = $translate.instant('error.unknown-error');
+                        }
+                        toast.showError($translate.instant('widgets-bundle.export-failed-error', {error: message}));
+                    }
+                );
+            },
+            function fail(rejection) {
+                var message = rejection;
+                if (!message) {
+                    message = $translate.instant('error.unknown-error');
+                }
+                toast.showError($translate.instant('widgets-bundle.export-failed-error', {error: message}));
+            }
+        );
+    }
+
+    function importNextWidgetType(widgetTypes, bundleAlias, index, deferred) {
+        if (!widgetTypes || widgetTypes.length <= index) {
+            deferred.resolve();
+        } else {
+            var widgetType = widgetTypes[index];
+            widgetType.bundleAlias = bundleAlias;
+            widgetService.saveImportedWidgetType(widgetType).then(
+                function success() {
+                    index++;
+                    importNextWidgetType(widgetTypes, bundleAlias, index, deferred);
+                },
+                function fail() {
+                    deferred.reject();
+                }
+            );
+
+        }
+    }
+
+    function importWidgetsBundle($event) {
+        var deferred = $q.defer();
+        openImportDialog($event, 'widgets-bundle.import', 'widgets-bundle.widgets-bundle-file').then(
+            function success(widgetsBundleItem) {
+                if (!validateImportedWidgetsBundle(widgetsBundleItem)) {
+                    toast.showError($translate.instant('widgets-bundle.invalid-widgets-bundle-file-error'));
+                    deferred.reject();
+                } else {
+                    var widgetsBundle = widgetsBundleItem.widgetsBundle;
+                    widgetService.saveWidgetsBundle(widgetsBundle).then(
+                        function success(savedWidgetsBundle) {
+                            var bundleAlias = savedWidgetsBundle.alias;
+                            var widgetTypes = widgetsBundleItem.widgetTypes;
+                            importNextWidgetType(widgetTypes, bundleAlias, 0, deferred);
+                        },
+                        function fail() {
+                            deferred.reject();
+                        }
+                    );
+                }
+            },
+            function fail() {
+                deferred.reject();
+            }
+        );
+        return deferred.promise;
+    }
+
+    function validateImportedWidgetsBundle(widgetsBundleItem) {
+        if (angular.isUndefined(widgetsBundleItem.widgetsBundle)) {
+            return false;
+        }
+        if (angular.isUndefined(widgetsBundleItem.widgetTypes)) {
+            return false;
+        }
+        var widgetsBundle = widgetsBundleItem.widgetsBundle;
+        if (angular.isUndefined(widgetsBundle.title)) {
+            return false;
+        }
+        var widgetTypes = widgetsBundleItem.widgetTypes;
+        for (var t in widgetTypes) {
+            var widgetType = widgetTypes[t];
+            if (!validateImportedWidgetType(widgetType)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // Widget type functions
+
+    function exportWidgetType(widgetTypeId) {
+        widgetService.getWidgetTypeById(widgetTypeId).then(
+            function success(widgetType) {
+                if (angular.isDefined(widgetType.bundleAlias)) {
+                    delete widgetType.bundleAlias;
+                }
+                var name = widgetType.name;
+                name = name.toLowerCase().replace(/\W/g,"_");
+                exportToPc(prepareExport(widgetType), name + '.json');
+            },
+            function fail(rejection) {
+                var message = rejection;
+                if (!message) {
+                    message = $translate.instant('error.unknown-error');
+                }
+                toast.showError($translate.instant('widget-type.export-failed-error', {error: message}));
+            }
+        );
+    }
+
+    function importWidgetType($event, bundleAlias) {
+        var deferred = $q.defer();
+        openImportDialog($event, 'widget-type.import', 'widget-type.widget-type-file').then(
+            function success(widgetType) {
+                if (!validateImportedWidgetType(widgetType)) {
+                    toast.showError($translate.instant('widget-type.invalid-widget-type-file-error'));
+                    deferred.reject();
+                } else {
+                    widgetType.bundleAlias = bundleAlias;
+                    widgetService.saveImportedWidgetType(widgetType).then(
+                        function success() {
+                            deferred.resolve();
+                        },
+                        function fail() {
+                            deferred.reject();
+                        }
+                    );
+                }
+            },
+            function fail() {
+                deferred.reject();
+            }
+        );
+        return deferred.promise;
+    }
+
+    function validateImportedWidgetType(widgetType) {
+        if (angular.isUndefined(widgetType.name)
+            || angular.isUndefined(widgetType.descriptor))
+        {
+            return false;
+        }
+        return true;
+    }
+
+    // Rule functions
+
+    function exportRule(ruleId) {
+        ruleService.getRule(ruleId).then(
+            function success(rule) {
+                var name = rule.name;
+                name = name.toLowerCase().replace(/\W/g,"_");
+                exportToPc(prepareExport(rule), name + '.json');
+            },
+            function fail(rejection) {
+                var message = rejection;
+                if (!message) {
+                    message = $translate.instant('error.unknown-error');
+                }
+                toast.showError($translate.instant('rule.export-failed-error', {error: message}));
+            }
+        );
+    }
+
+    function importRule($event) {
+        var deferred = $q.defer();
+        openImportDialog($event, 'rule.import', 'rule.rule-file').then(
+            function success(rule) {
+                if (!validateImportedRule(rule)) {
+                    toast.showError($translate.instant('rule.invalid-rule-file-error'));
+                    deferred.reject();
+                } else {
+                    rule.state = 'SUSPENDED';
+                    ruleService.saveRule(rule).then(
+                        function success() {
+                            deferred.resolve();
+                        },
+                        function fail() {
+                            deferred.reject();
+                        }
+                    );
+                }
+            },
+            function fail() {
+                deferred.reject();
+            }
+        );
+        return deferred.promise;
+    }
+
+    function validateImportedRule(rule) {
+        if (angular.isUndefined(rule.name)
+            || angular.isUndefined(rule.pluginToken)
+            || angular.isUndefined(rule.filters)
+            || angular.isUndefined(rule.action))
+        {
+            return false;
+        }
+        return true;
+    }
+
+    // Plugin functions
+
+    function exportPlugin(pluginId) {
+        pluginService.getPlugin(pluginId).then(
+            function success(plugin) {
+                if (!plugin.configuration || plugin.configuration === null) {
+                    plugin.configuration = {};
+                }
+                var name = plugin.name;
+                name = name.toLowerCase().replace(/\W/g,"_");
+                exportToPc(prepareExport(plugin), name + '.json');
+            },
+            function fail(rejection) {
+                var message = rejection;
+                if (!message) {
+                    message = $translate.instant('error.unknown-error');
+                }
+                toast.showError($translate.instant('plugin.export-failed-error', {error: message}));
+            }
+        );
+    }
+
+    function importPlugin($event) {
+        var deferred = $q.defer();
+        openImportDialog($event, 'plugin.import', 'plugin.plugin-file').then(
+            function success(plugin) {
+                if (!validateImportedPlugin(plugin)) {
+                    toast.showError($translate.instant('plugin.invalid-plugin-file-error'));
+                    deferred.reject();
+                } else {
+                    plugin.state = 'SUSPENDED';
+                    pluginService.savePlugin(plugin).then(
+                        function success() {
+                            deferred.resolve();
+                        },
+                        function fail() {
+                            deferred.reject();
+                        }
+                    );
+                }
+            },
+            function fail() {
+                deferred.reject();
+            }
+        );
+        return deferred.promise;
+    }
+
+    function validateImportedPlugin(plugin) {
+        if (angular.isUndefined(plugin.name)
+            || angular.isUndefined(plugin.clazz)
+            || angular.isUndefined(plugin.apiToken)
+            || angular.isUndefined(plugin.configuration))
+        {
+            return false;
+        }
+        return true;
+    }
+
     // Widget functions
 
-    function exportWidget(dashboard, widget) {
-        var widgetItem = itembuffer.prepareWidgetItem(dashboard, widget);
+    function exportWidget(dashboard, sourceState, sourceLayout, widget) {
+        var widgetItem = itembuffer.prepareWidgetItem(dashboard, sourceState, sourceLayout, widget);
         var name = widgetItem.widget.config.title;
         name = name.toLowerCase().replace(/\W/g,"_");
         exportToPc(prepareExport(widgetItem), name + '.json');
     }
 
-    function prepareDeviceAlias(aliasInfo) {
-        var deviceFilter;
-        if (aliasInfo.deviceId) {
-            deviceFilter = {
-                useFilter: false,
-                deviceNameFilter: '',
-                deviceList: [aliasInfo.deviceId]
+    function prepareAliasesInfo(aliasesInfo) {
+        var datasourceAliases = aliasesInfo.datasourceAliases;
+        var targetDeviceAliases = aliasesInfo.targetDeviceAliases;
+        var datasourceIndex;
+        if (datasourceAliases || targetDeviceAliases) {
+            if (datasourceAliases) {
+                for (datasourceIndex in datasourceAliases) {
+                    datasourceAliases[datasourceIndex] = prepareEntityAlias(datasourceAliases[datasourceIndex]);
+                }
             }
-            delete aliasInfo.deviceId;
+            if (targetDeviceAliases) {
+                for (datasourceIndex in targetDeviceAliases) {
+                    targetDeviceAliases[datasourceIndex] = prepareEntityAlias(targetDeviceAliases[datasourceIndex]);
+                }
+            }
+        }
+        return aliasesInfo;
+    }
+
+    function prepareEntityAlias(aliasInfo) {
+        var alias;
+        var filter;
+        if (aliasInfo.deviceId) {
+            alias = aliasInfo.aliasName;
+            filter = {
+                type: types.aliasFilterType.entityList.value,
+                entityType: types.entityType.device,
+                entityList: [aliasInfo.deviceId],
+                resolveMultiple: false
+            };
+        } else if (aliasInfo.deviceFilter) {
+            alias = aliasInfo.aliasName;
+            filter = {
+                type: aliasInfo.deviceFilter.useFilter ? types.aliasFilterType.entityName.value : types.aliasFilterType.entityList.value,
+                entityType: types.entityType.device,
+                resolveMultiple: false
+            }
+            if (filter.type == types.aliasFilterType.entityList.value) {
+                filter.entityList = aliasInfo.deviceFilter.deviceList
+            } else {
+                filter.entityNameFilter = aliasInfo.deviceFilter.deviceNameFilter;
+            }
+        } else if (aliasInfo.entityFilter) {
+            alias = aliasInfo.aliasName;
+            filter = {
+                type: aliasInfo.entityFilter.useFilter ? types.aliasFilterType.entityName.value : types.aliasFilterType.entityList.value,
+                entityType: aliasInfo.entityType,
+                resolveMultiple: false
+            }
+            if (filter.type == types.aliasFilterType.entityList.value) {
+                filter.entityList = aliasInfo.entityFilter.entityList;
+            } else {
+                filter.entityNameFilter = aliasInfo.entityFilter.entityNameFilter;
+            }
         } else {
-            deviceFilter = aliasInfo.deviceFilter;
+            alias = aliasInfo.alias;
+            filter = aliasInfo.filter;
         }
         return {
-            alias: aliasInfo.aliasName,
-            deviceFilter: deviceFilter
+            alias: alias,
+            filter: filter
         };
     }
 
-    function importWidget($event, dashboard, onAliasesUpdate) {
+    function importWidget($event, dashboard, targetState, targetLayoutFunction, onAliasesUpdateFunction) {
+        var deferred = $q.defer();
         openImportDialog($event, 'dashboard.import-widget', 'dashboard.widget-file').then(
             function success(widgetItem) {
                 if (!validateImportedWidget(widgetItem)) {
                     toast.showError($translate.instant('dashboard.invalid-widget-file-error'));
+                    deferred.reject();
                 } else {
                     var widget = widgetItem.widget;
-                    var aliasesInfo = widgetItem.aliasesInfo;
+                    widget = dashboardUtils.validateAndUpdateWidget(widget);
+                    var aliasesInfo = prepareAliasesInfo(widgetItem.aliasesInfo);
                     var originalColumns = widgetItem.originalColumns;
+                    var originalSize = widgetItem.originalSize;
 
                     var datasourceAliases = aliasesInfo.datasourceAliases;
                     var targetDeviceAliases = aliasesInfo.targetDeviceAliases;
                     if (datasourceAliases || targetDeviceAliases) {
-                        var deviceAliases = {};
+                        var entityAliases = {};
                         var datasourceAliasesMap = {};
                         var targetDeviceAliasesMap = {};
-                        var aliasId = 1;
+                        var aliasId;
                         var datasourceIndex;
                         if (datasourceAliases) {
                             for (datasourceIndex in datasourceAliases) {
+                                aliasId = utils.guid();
                                 datasourceAliasesMap[aliasId] = datasourceIndex;
-                                deviceAliases[aliasId] = prepareDeviceAlias(datasourceAliases[datasourceIndex]);
-                                aliasId++;
+                                entityAliases[aliasId] = datasourceAliases[datasourceIndex];
+                                entityAliases[aliasId].id = aliasId;
                             }
                         }
                         if (targetDeviceAliases) {
                             for (datasourceIndex in targetDeviceAliases) {
+                                aliasId = utils.guid();
                                 targetDeviceAliasesMap[aliasId] = datasourceIndex;
-                                deviceAliases[aliasId] = prepareDeviceAlias(targetDeviceAliases[datasourceIndex]);
-                                aliasId++;
+                                entityAliases[aliasId] = targetDeviceAliases[datasourceIndex];
+                                entityAliases[aliasId].id = aliasId;
                             }
                         }
 
-                        var aliasIds = Object.keys(deviceAliases);
+                        var aliasIds = Object.keys(entityAliases);
                         if (aliasIds.length > 0) {
-                            processDeviceAliases(deviceAliases, aliasIds).then(
-                                function(missingDeviceAliases) {
-                                    if (Object.keys(missingDeviceAliases).length > 0) {
+                            processEntityAliases(entityAliases, aliasIds).then(
+                                function(missingEntityAliases) {
+                                    if (Object.keys(missingEntityAliases).length > 0) {
                                         editMissingAliases($event, [ widget ],
-                                              true, 'dashboard.widget-import-missing-aliases-title', missingDeviceAliases).then(
-                                            function success(updatedDeviceAliases) {
-                                                for (var aliasId in updatedDeviceAliases) {
-                                                    var deviceAlias = updatedDeviceAliases[aliasId];
+                                              true, 'dashboard.widget-import-missing-aliases-title', missingEntityAliases).then(
+                                            function success(updatedEntityAliases) {
+                                                for (var aliasId in updatedEntityAliases) {
+                                                    var entityAlias = updatedEntityAliases[aliasId];
                                                     var datasourceIndex;
                                                     if (datasourceAliasesMap[aliasId]) {
                                                         datasourceIndex = datasourceAliasesMap[aliasId];
-                                                        datasourceAliases[datasourceIndex].deviceFilter = deviceAlias.deviceFilter;
+                                                        datasourceAliases[datasourceIndex] = entityAlias;
                                                     } else if (targetDeviceAliasesMap[aliasId]) {
                                                         datasourceIndex = targetDeviceAliasesMap[aliasId];
-                                                        targetDeviceAliases[datasourceIndex].deviceFilter = deviceAlias.deviceFilter;
+                                                        targetDeviceAliases[datasourceIndex] = entityAlias;
                                                     }
                                                 }
-                                                addImportedWidget(dashboard, widget, aliasesInfo, onAliasesUpdate, originalColumns);
+                                                addImportedWidget(dashboard, targetState, targetLayoutFunction, $event, widget,
+                                                    aliasesInfo, onAliasesUpdateFunction, originalColumns, originalSize, deferred);
                                             },
-                                            function fail() {}
+                                            function fail() {
+                                                deferred.reject();
+                                            }
                                         );
                                     } else {
-                                        addImportedWidget(dashboard, widget, aliasesInfo, onAliasesUpdate, originalColumns);
+                                        addImportedWidget(dashboard, targetState, targetLayoutFunction, $event, widget,
+                                            aliasesInfo, onAliasesUpdateFunction, originalColumns, originalSize, deferred);
                                     }
                                 }
                             );
                         } else {
-                            addImportedWidget(dashboard, widget, aliasesInfo, onAliasesUpdate, originalColumns);
+                            addImportedWidget(dashboard, targetState, targetLayoutFunction, $event, widget,
+                                aliasesInfo, onAliasesUpdateFunction, originalColumns, originalSize, deferred);
                         }
                     } else {
-                        addImportedWidget(dashboard, widget, aliasesInfo, onAliasesUpdate, originalColumns);
+                        addImportedWidget(dashboard, targetState, targetLayoutFunction, $event, widget,
+                            aliasesInfo, onAliasesUpdateFunction, originalColumns, originalSize, deferred);
                     }
                 }
             },
-            function fail() {}
+            function fail() {
+                deferred.reject();
+            }
         );
+        return deferred.promise;
     }
 
     function validateImportedWidget(widgetItem) {
@@ -152,8 +507,26 @@ export default function ImportExport($log, $translate, $q, $mdDialog, $document,
         return true;
     }
 
-    function addImportedWidget(dashboard, widget, aliasesInfo, onAliasesUpdate, originalColumns) {
-        itembuffer.addWidgetToDashboard(dashboard, widget, aliasesInfo, onAliasesUpdate, originalColumns, -1, -1);
+    function addImportedWidget(dashboard, targetState, targetLayoutFunction, event, widget,
+                               aliasesInfo, onAliasesUpdateFunction, originalColumns, originalSize, deferred) {
+        targetLayoutFunction(event).then(
+            function success(targetLayout) {
+                itembuffer.addWidgetToDashboard(dashboard, targetState, targetLayout, widget,
+                    aliasesInfo, onAliasesUpdateFunction, originalColumns, originalSize, -1, -1).then(
+                        function() {
+                            deferred.resolve(
+                                {
+                                    widget: widget,
+                                    layoutId: targetLayout
+                                }
+                            );
+                        }
+                );
+            },
+            function fail() {
+                deferred.reject();
+            }
+        );
     }
 
     // Dashboard functions
@@ -183,18 +556,19 @@ export default function ImportExport($log, $translate, $q, $mdDialog, $document,
                     toast.showError($translate.instant('dashboard.invalid-dashboard-file-error'));
                     deferred.reject();
                 } else {
-                    var deviceAliases = dashboard.configuration.deviceAliases;
-                    if (deviceAliases) {
-                        var aliasIds = Object.keys( deviceAliases );
+                    dashboard = dashboardUtils.validateAndUpdateDashboard(dashboard);
+                    var entityAliases = dashboard.configuration.entityAliases;
+                    if (entityAliases) {
+                        var aliasIds = Object.keys( entityAliases );
                         if (aliasIds.length > 0) {
-                            processDeviceAliases(deviceAliases, aliasIds).then(
-                                function(missingDeviceAliases) {
-                                    if (Object.keys( missingDeviceAliases ).length > 0) {
+                            processEntityAliases(entityAliases, aliasIds).then(
+                                function(missingEntityAliases) {
+                                    if (Object.keys( missingEntityAliases ).length > 0) {
                                         editMissingAliases($event, dashboard.configuration.widgets,
-                                                false, 'dashboard.dashboard-import-missing-aliases-title', missingDeviceAliases).then(
-                                            function success(updatedDeviceAliases) {
-                                                for (var aliasId in updatedDeviceAliases) {
-                                                    deviceAliases[aliasId] = updatedDeviceAliases[aliasId];
+                                                false, 'dashboard.dashboard-import-missing-aliases-title', missingEntityAliases).then(
+                                            function success(updatedEntityAliases) {
+                                                for (var aliasId in updatedEntityAliases) {
+                                                    entityAliases[aliasId] = updatedEntityAliases[aliasId];
                                                 }
                                                 saveImportedDashboard(dashboard, deferred);
                                             },
@@ -240,53 +614,51 @@ export default function ImportExport($log, $translate, $q, $mdDialog, $document,
         return true;
     }
 
-    function processDeviceAliases(deviceAliases, aliasIds) {
+    function processEntityAliases(entityAliases, aliasIds) {
         var deferred = $q.defer();
-        var missingDeviceAliases = {};
+        var missingEntityAliases = {};
         var index = -1;
-        checkNextDeviceAliasOrComplete(index, aliasIds, deviceAliases, missingDeviceAliases, deferred);
+        checkNextEntityAliasOrComplete(index, aliasIds, entityAliases, missingEntityAliases, deferred);
         return deferred.promise;
     }
 
-    function checkNextDeviceAliasOrComplete(index, aliasIds, deviceAliases, missingDeviceAliases, deferred) {
+    function checkNextEntityAliasOrComplete(index, aliasIds, entityAliases, missingEntityAliases, deferred) {
         index++;
         if (index == aliasIds.length) {
-            deferred.resolve(missingDeviceAliases);
+            deferred.resolve(missingEntityAliases);
         } else {
-            checkDeviceAlias(index, aliasIds, deviceAliases, missingDeviceAliases, deferred);
+            checkEntityAlias(index, aliasIds, entityAliases, missingEntityAliases, deferred);
         }
     }
 
-    function checkDeviceAlias(index, aliasIds, deviceAliases, missingDeviceAliases, deferred) {
+    function checkEntityAlias(index, aliasIds, entityAliases, missingEntityAliases, deferred) {
         var aliasId = aliasIds[index];
-        var deviceAlias = deviceAliases[aliasId];
-        deviceService.checkDeviceAlias(deviceAlias).then(
+        var entityAlias = entityAliases[aliasId];
+        entityService.checkEntityAlias(entityAlias).then(
             function(result) {
                 if (result) {
-                    checkNextDeviceAliasOrComplete(index, aliasIds, deviceAliases, missingDeviceAliases, deferred);
+                    checkNextEntityAliasOrComplete(index, aliasIds, entityAliases, missingEntityAliases, deferred);
                 } else {
-                    var missingDeviceAlias = angular.copy(deviceAlias);
-                    missingDeviceAlias.deviceFilter = null;
-                    missingDeviceAliases[aliasId] = missingDeviceAlias;
-                    checkNextDeviceAliasOrComplete(index, aliasIds, deviceAliases, missingDeviceAliases, deferred);
+                    var missingEntityAlias = angular.copy(entityAlias);
+                    missingEntityAlias.filter = null;
+                    missingEntityAliases[aliasId] = missingEntityAlias;
+                    checkNextEntityAliasOrComplete(index, aliasIds, entityAliases, missingEntityAliases, deferred);
                 }
             }
         );
     }
 
-    function editMissingAliases($event, widgets, isSingleWidget, customTitle, missingDeviceAliases) {
+    function editMissingAliases($event, widgets, isSingleWidget, customTitle, missingEntityAliases) {
         var deferred = $q.defer();
         $mdDialog.show({
-            controller: 'DeviceAliasesController',
+            controller: 'EntityAliasesController',
             controllerAs: 'vm',
-            templateUrl: deviceAliasesTemplate,
+            templateUrl: entityAliasesTemplate,
             locals: {
                 config: {
-                    deviceAliases: missingDeviceAliases,
+                    entityAliases: missingEntityAliases,
                     widgets: widgets,
                     isSingleWidget: isSingleWidget,
-                    isSingleDeviceAlias: false,
-                    singleDeviceAlias: null,
                     customTitle: customTitle,
                     disableAdd: true
                 }
@@ -295,8 +667,8 @@ export default function ImportExport($log, $translate, $q, $mdDialog, $document,
             skipHide: true,
             fullscreen: true,
             targetEvent: $event
-        }).then(function (updatedDeviceAliases) {
-            deferred.resolve(updatedDeviceAliases);
+        }).then(function (updatedEntityAliases) {
+            deferred.resolve(updatedEntityAliases);
         }, function () {
             deferred.reject();
         });

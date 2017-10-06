@@ -23,39 +23,18 @@ import userFieldsetTemplate from './user-fieldset.tpl.html';
 /* eslint-enable import/no-unresolved, import/default */
 
 /*@ngInject*/
-export default function UserDirective($compile, $templateCache, dashboardService) {
+export default function UserDirective($compile, $templateCache/*, dashboardService*/) {
     var linker = function (scope, element) {
         var template = $templateCache.get(userFieldsetTemplate);
         element.html(template);
 
+        scope.isTenantAdmin = function() {
+            return scope.user && scope.user.authority === 'TENANT_ADMIN';
+        }
+
         scope.isCustomerUser = function() {
             return scope.user && scope.user.authority === 'CUSTOMER_USER';
         }
-
-        scope.$watch('user', function(newUser, prevUser) {
-            if (!angular.equals(newUser, prevUser) && newUser) {
-                scope.defaultDashboard = null;
-                if (scope.isCustomerUser() && scope.user.additionalInfo &&
-                    scope.user.additionalInfo.defaultDashboardId) {
-                    dashboardService.getDashboard(scope.user.additionalInfo.defaultDashboardId).then(
-                        function(dashboard) {
-                            scope.defaultDashboard = dashboard;
-                        }
-                    )
-                }
-            }
-        });
-
-        scope.$watch('defaultDashboard', function(newDashboard, prevDashboard) {
-            if (!angular.equals(newDashboard, prevDashboard)) {
-                if (scope.isCustomerUser()) {
-                    if (!scope.user.additionalInfo) {
-                        scope.user.additionalInfo = {};
-                    }
-                    scope.user.additionalInfo.defaultDashboardId = newDashboard ? newDashboard.id.id : null;
-                }
-            }
-        });
 
         $compile(element.contents())(scope);
     }
@@ -66,6 +45,7 @@ export default function UserDirective($compile, $templateCache, dashboardService
             user: '=',
             isEdit: '=',
             theForm: '=',
+            onDisplayActivationLink: '&',
             onResendActivation: '&',
             onDeleteUser: '&'
         }

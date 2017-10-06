@@ -15,9 +15,28 @@
     limitations under the License.
 
 -->
-<md-button ng-click="onActivateRule({event: $event})" ng-show="!isEdit && !isReadOnly && rule.state === 'SUSPENDED'" class="md-raised md-primary">{{ 'rule.activate' | translate }}</md-button>
-<md-button ng-click="onSuspendRule({event: $event})" ng-show="!isEdit && !isReadOnly && rule.state === 'ACTIVE'" class="md-raised md-primary">{{ 'rule.suspend' | translate }}</md-button>
-<md-button ng-click="onDeleteRule({event: $event})" ng-show="!isEdit && !isReadOnly" class="md-raised md-primary">{{ 'rule.delete' | translate }}</md-button>
+<md-button ng-click="onActivateRule({event: $event})"
+           ng-show="!isEdit && !isReadOnly && rule.state === 'SUSPENDED'"
+           class="md-raised md-primary">{{ 'rule.activate' | translate }}</md-button>
+<md-button ng-click="onSuspendRule({event: $event})"
+           ng-show="!isEdit && !isReadOnly && rule.state === 'ACTIVE'"
+           class="md-raised md-primary">{{ 'rule.suspend' | translate }}</md-button>
+<md-button ng-click="onExportRule({event: $event})"
+           ng-show="!isEdit"
+           class="md-raised md-primary">{{ 'rule.export' | translate }}</md-button>
+<md-button ng-click="onDeleteRule({event: $event})"
+           ng-show="!isEdit && !isReadOnly"
+           class="md-raised md-primary">{{ 'rule.delete' | translate }}</md-button>
+
+<div layout="row">
+    <md-button ngclipboard data-clipboard-action="copy"
+               ngclipboard-success="onRuleIdCopied(e)"
+               data-clipboard-text="{{rule.id.id}}" ng-show="!isEdit"
+               class="md-raised">
+        <md-icon md-svg-icon="mdi:clipboard-arrow-left"></md-icon>
+        <span translate>rule.copyId</span>
+    </md-button>
+</div>
 
 <md-content class="md-padding tb-rule" layout="column">
     <fieldset ng-disabled="loading || !isEdit || isReadOnly">
@@ -146,11 +165,11 @@
         <fieldset ng-disabled="loading || !isEdit || isReadOnly">
             <md-input-container ng-if="!isEdit || isReadOnly" flex class="md-block">
                 <label translate>plugin.plugin</label>
-                <input required name="name" ng-model="plugin.name">
+                <input name="name" ng-model="plugin.name">
             </md-input-container>
             <tb-plugin-select ng-show="isEdit && !isReadOnly" flex
                       ng-model="plugin"
-                      tb-required="true"
+                      tb-required="false"
                       the-form="theForm"
                       plugins-scope="action">
             </tb-plugin-select>

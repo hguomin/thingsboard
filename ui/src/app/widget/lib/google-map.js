@@ -20,13 +20,14 @@ var gmGlobals = {
 }
 
 export default class TbGoogleMap {
-    constructor($containerElement, initCallback, defaultZoomLevel, dontFitMapBounds, minZoomLevel, gmApiKey) {
+    constructor($containerElement, initCallback, defaultZoomLevel, dontFitMapBounds, minZoomLevel, gmApiKey, gmDefaultMapType) {
 
         var tbMap = this;
         this.defaultZoomLevel = defaultZoomLevel;
         this.dontFitMapBounds = dontFitMapBounds;
         this.minZoomLevel = minZoomLevel;
         this.tooltips = [];
+        this.defaultMapType = gmDefaultMapType;
 
         function clearGlobalId() {
             if (gmGlobals.loadingGmId && gmGlobals.loadingGmId === tbMap.mapId) {
@@ -44,6 +45,7 @@ export default class TbGoogleMap {
 
             tbMap.map = new google.maps.Map($containerElement[0], { // eslint-disable-line no-undef
                 scrollwheel: false,
+                mapTypeId: getGoogleMapTypeId(tbMap.defaultMapType),
                 zoom: tbMap.defaultZoomLevel || 8
             });
 
@@ -52,6 +54,24 @@ export default class TbGoogleMap {
             }
 
         }
+
+        /* eslint-disable no-undef */
+
+        function getGoogleMapTypeId(mapType) {
+            var mapTypeId = google.maps.MapTypeId.ROADMAP;
+            if (mapType) {
+                if (mapType === 'hybrid') {
+                    mapTypeId = google.maps.MapTypeId.HYBRID;
+                } else if (mapType === 'satellite') {
+                    mapTypeId = google.maps.MapTypeId.SATELLITE;
+                } else if (mapType === 'terrain') {
+                    mapTypeId = google.maps.MapTypeId.TERRAIN;
+                }
+            }
+            return mapTypeId;
+        }
+
+        /* eslint-enable no-undef */
 
         this.mapId = '' + Math.random().toString(36).substr(2, 9);
         this.apiKey = gmApiKey || '';
@@ -71,7 +91,7 @@ export default class TbGoogleMap {
                 function success() {
                     gmGlobals.gmApiKeys[tbMap.apiKey].loaded = true;
                     initGoogleMap();
-                    for (var p in gmGlobals.gmApiKeys[tbMap.apiKey].pendingInits) {
+                    for (var p = 0; p < gmGlobals.gmApiKeys[tbMap.apiKey].pendingInits.length; p++) {
                         var pendingInit = gmGlobals.gmApiKeys[tbMap.apiKey].pendingInits[p];
                         pendingInit();
                     }
@@ -124,9 +144,15 @@ export default class TbGoogleMap {
     }
 
     /* eslint-disable no-undef */
+    updateMarkerLabel(marker, settings) {
+        marker.set('labelContent', '<div style="color: '+ settings.labelColor +';"><b>'+settings.labelText+'</b></div>');
+    }
+    /* eslint-enable no-undef */
+
+    /* eslint-disable no-undef */
     updateMarkerColor(marker, color) {
         var pinColor = color.substr(1);
-        var pinImage = new google.maps.MarkerImage("http://chart.apis.google.com/chart?chst=d_map_pin_letter&chld=%E2%80%A2|" + pinColor,
+        var pinImage = new google.maps.MarkerImage("https://chart.apis.google.com/chart?chst=d_map_pin_letter&chld=%E2%80%A2|" + pinColor,
             new google.maps.Size(21, 34),
             new google.maps.Point(0,0),
             new google.maps.Point(10, 34));
@@ -136,11 +162,13 @@ export default class TbGoogleMap {
 
     /* eslint-disable no-undef */
     updateMarkerImage(marker, settings, image, maxSize) {
-        var testImage = new Image();
+        var testImage = document.createElement('img'); // eslint-disable-line
+        testImage.style.visibility = 'hidden';
         testImage.onload = function() {
             var width;
             var height;
             var aspect = testImage.width / testImage.height;
+            document.body.removeChild(testImage); //eslint-disable-line
             if (aspect > 1) {
                 width = maxSize;
                 height = maxSize / aspect;
@@ -154,22 +182,23 @@ export default class TbGoogleMap {
             }
             marker.setIcon(pinImage);
             if (settings.showLabel) {
-                marker.set('labelAnchor', new google.maps.Point(50, height + 20));
+                marker.set('labelAnchor', new google.maps.Point(100, height + 20));
             }
         }
+        document.body.appendChild(testImage); //eslint-disable-line
         testImage.src = image;
     }
     /* eslint-enable no-undef */
 
     /* eslint-disable no-undef */
-    createMarker(location, settings) {
+    createMarker(location, settings, onClickListener, markerArgs) {
         var height = 34;
         var pinColor = settings.color.substr(1);
-        var pinImage = new google.maps.MarkerImage("http://chart.apis.google.com/chart?chst=d_map_pin_letter&chld=%E2%80%A2|" + pinColor,
+        var pinImage = new google.maps.MarkerImage("https://chart.apis.google.com/chart?chst=d_map_pin_letter&chld=%E2%80%A2|" + pinColor,
             new google.maps.Size(21, 34),
             new google.maps.Point(0,0),
             new google.maps.Point(10, 34));
-        var pinShadow = new google.maps.MarkerImage("http://chart.apis.google.com/chart?chst=d_map_pin_shadow",
+        var pinShadow = new google.maps.MarkerImage("https://chart.apis.google.com/chart?chst=d_map_pin_shadow",
             new google.maps.Size(40, 37),
             new google.maps.Point(0, 0),
             new google.maps.Point(12, 35));
@@ -180,9 +209,9 @@ export default class TbGoogleMap {
                 map: this.map,
                 icon: pinImage,
                 shadow: pinShadow,
-                labelContent: '<b>'+settings.label+'</b>',
+                labelContent: '<div style="color: '+ settings.labelColor +';"><b>'+settings.labelText+'</b></div>',
                 labelClass: "tb-labels",
-                labelAnchor: new google.maps.Point(50, height + 20)
+                labelAnchor: new google.maps.Point(100, height + 20)
             });
         } else {
             marker = new google.maps.Marker({
@@ -197,21 +226,39 @@ export default class TbGoogleMap {
             this.updateMarkerImage(marker, settings, settings.markerImage, settings.markerImageSize || 34);
         }
 
-        this.createTooltip(marker, settings.tooltipPattern, settings.tooltipReplaceInfo);
+        if (settings.displayTooltip) {
+            this.createTooltip(marker, settings.tooltipPattern, settings.tooltipReplaceInfo, settings.autocloseTooltip, markerArgs);
+        }
+
+        if (onClickListener) {
+            marker.addListener('click', onClickListener);
+        }
 
         return marker;
     }
+
+    removeMarker(marker) {
+        marker.setMap(null);
+    }
+
     /* eslint-enable no-undef */
 
     /* eslint-disable no-undef */
-    createTooltip(marker, pattern, replaceInfo) {
+    createTooltip(marker, pattern, replaceInfo, autoClose, markerArgs) {
         var popup = new google.maps.InfoWindow({
             content: ''
         });
+        var map = this;
         marker.addListener('click', function() {
+            if (autoClose) {
+                map.tooltips.forEach((tooltip) => {
+                    tooltip.popup.close();
+                });
+            }
             popup.open(this.map, marker);
         });
         this.tooltips.push( {
+            markerArgs: markerArgs,
             popup: popup,
             pattern: pattern,
             replaceInfo: replaceInfo
@@ -246,24 +293,33 @@ export default class TbGoogleMap {
     }
     /* eslint-enable no-undef */
 
-    fitBounds(bounds) {
-        var tbMap = this;
-        google.maps.event.addListenerOnce(this.map, 'bounds_changed', function() { // eslint-disable-line no-undef
-            var newZoomLevel = tbMap.map.getZoom();
-            if (tbMap.dontFitMapBounds && tbMap.defaultZoomLevel) {
-                newZoomLevel = tbMap.defaultZoomLevel;
-            }
-            tbMap.map.setZoom(newZoomLevel);
-
-            if (!tbMap.defaultZoomLevel && tbMap.map.getZoom() > tbMap.minZoomLevel) {
-                tbMap.map.setZoom(tbMap.minZoomLevel);
-            }
-        });
-        this.map.fitBounds(bounds);
+    removePolyline(polyline) {
+        polyline.setMap(null);
     }
+
+    /* eslint-disable no-undef */
+    fitBounds(bounds) {
+        if (this.dontFitMapBounds && this.defaultZoomLevel) {
+            this.map.setZoom(this.defaultZoomLevel);
+            this.map.setCenter(bounds.getCenter());
+        } else {
+            var tbMap = this;
+            google.maps.event.addListenerOnce(this.map, 'bounds_changed', function() { // eslint-disable-line no-undef
+                if (!tbMap.defaultZoomLevel && tbMap.map.getZoom() > tbMap.minZoomLevel) {
+                    tbMap.map.setZoom(tbMap.minZoomLevel);
+                }
+            });
+            this.map.fitBounds(bounds);
+        }
+    }
+    /* eslint-enable no-undef */
 
     createLatLng(lat, lng) {
         return new google.maps.LatLng(lat, lng); // eslint-disable-line no-undef
+    }
+
+    extendBoundsWithMarker(bounds, marker) {
+        bounds.extend(marker.getPosition());
     }
 
     getMarkerPosition(marker) {

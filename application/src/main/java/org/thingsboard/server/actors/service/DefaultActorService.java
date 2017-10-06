@@ -20,8 +20,6 @@ import akka.actor.ActorSystem;
 import akka.actor.Props;
 import akka.actor.Terminated;
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.thingsboard.server.actors.ActorSystemContext;
@@ -42,13 +40,13 @@ import org.thingsboard.server.common.msg.cluster.ClusterEventMsg;
 import org.thingsboard.server.common.msg.cluster.ServerAddress;
 import org.thingsboard.server.common.msg.cluster.ToAllNodesMsg;
 import org.thingsboard.server.common.msg.core.ToDeviceSessionActorMsg;
+import org.thingsboard.server.extensions.api.device.DeviceNameOrTypeUpdateMsg;
 import org.thingsboard.server.common.msg.device.ToDeviceActorMsg;
 import org.thingsboard.server.common.msg.plugin.ComponentLifecycleMsg;
 import org.thingsboard.server.extensions.api.device.DeviceCredentialsUpdateNotificationMsg;
 import org.thingsboard.server.extensions.api.device.ToDeviceActorNotificationMsg;
 import org.thingsboard.server.extensions.api.plugins.msg.ToPluginActorMsg;
 import org.thingsboard.server.extensions.api.plugins.rest.PluginRestMsg;
-import org.thingsboard.server.extensions.api.plugins.rpc.PluginRpcMsg;
 import org.thingsboard.server.extensions.api.plugins.ws.msg.PluginWebsocketMsg;
 import org.thingsboard.server.service.cluster.discovery.DiscoveryService;
 import org.thingsboard.server.service.cluster.discovery.ServerInstance;
@@ -69,8 +67,10 @@ public class DefaultActorService implements ActorService {
 
     public static final String APP_DISPATCHER_NAME = "app-dispatcher";
     public static final String CORE_DISPATCHER_NAME = "core-dispatcher";
-    public static final String RULE_DISPATCHER_NAME = "rule-dispatcher";
-    public static final String PLUGIN_DISPATCHER_NAME = "plugin-dispatcher";
+    public static final String SYSTEM_RULE_DISPATCHER_NAME = "system-rule-dispatcher";
+    public static final String SYSTEM_PLUGIN_DISPATCHER_NAME = "system-plugin-dispatcher";
+    public static final String TENANT_RULE_DISPATCHER_NAME = "rule-dispatcher";
+    public static final String TENANT_PLUGIN_DISPATCHER_NAME = "plugin-dispatcher";
     public static final String SESSION_DISPATCHER_NAME = "session-dispatcher";
     public static final String RPC_DISPATCHER_NAME = "rpc-dispatcher";
 
@@ -130,10 +130,8 @@ public class DefaultActorService implements ActorService {
 
     @Override
     public void process(SessionAwareMsg msg) {
-        if (msg instanceof SessionAwareMsg) {
-            log.debug("Processing session aware msg: {}", msg);
-            sessionManagerActor.tell(msg, ActorRef.noSender());
-        }
+        log.debug("Processing session aware msg: {}", msg);
+        sessionManagerActor.tell(msg, ActorRef.noSender());
     }
 
     @Override
@@ -204,7 +202,7 @@ public class DefaultActorService implements ActorService {
 
     @Override
     public void onServerUpdated(ServerInstance server) {
-
+        //Do nothing
     }
 
     @Override
@@ -228,7 +226,19 @@ public class DefaultActorService implements ActorService {
     @Override
     public void onCredentialsUpdate(TenantId tenantId, DeviceId deviceId) {
         DeviceCredentialsUpdateNotificationMsg msg = new DeviceCredentialsUpdateNotificationMsg(tenantId, deviceId);
-        Optional<ServerAddress> address = actorContext.getRoutingService().resolve(deviceId);
+        Optional<ServerAddress> address = actorContext.getRoutingService().resolveById(deviceId);
+        if (address.isPresent()) {
+            rpcService.tell(address.get(), msg);
+        } else {
+            onMsg(msg);
+        }
+    }
+
+    @Override
+    public void onDeviceNameOrTypeUpdate(TenantId tenantId, DeviceId deviceId, String deviceName, String deviceType) {
+        log.trace("[{}] Processing onDeviceNameOrTypeUpdate event, deviceName: {}, deviceType: {}", deviceId, deviceName, deviceType);
+        DeviceNameOrTypeUpdateMsg msg = new DeviceNameOrTypeUpdateMsg(tenantId, deviceId, deviceName, deviceType);
+        Optional<ServerAddress> address = actorContext.getRoutingService().resolveById(deviceId);
         if (address.isPresent()) {
             rpcService.tell(address.get(), msg);
         } else {

@@ -26,6 +26,8 @@ import gridTemplate from './grid.tpl.html';
 
 export default angular.module('thingsboard.directives.grid', [thingsboardScopeElement, thingsboardDetailsSidenav])
     .directive('tbGrid', Grid)
+    .controller('AddItemController', AddItemController)
+    .controller('ItemCardController', ItemCardController)
     .directive('tbGridCardContent', GridCardContent)
     .filter('range', RangeFilter)
     .name;
@@ -44,14 +46,52 @@ function RangeFilter() {
 }
 
 /*@ngInject*/
-function GridCardContent($compile) {
+function ItemCardController() {
+
+    var vm = this; //eslint-disable-line
+
+}
+
+/*@ngInject*/
+function GridCardContent($compile, $controller) {
     var linker = function(scope, element) {
+
+        var controllerInstance = null;
+
         scope.$watch('itemTemplate',
-            function(value) {
-                element.html(value);
-                $compile(element.contents())(scope);
+            function() {
+                initContent();
             }
         );
+        scope.$watch('itemController',
+            function() {
+                initContent();
+            }
+        );
+        scope.$watch('parentCtl',
+            function() {
+                controllerInstance.parentCtl = scope.parentCtl;
+            }
+        );
+        scope.$watch('item',
+            function() {
+                controllerInstance.item = scope.item;
+            }
+        );
+
+        function initContent() {
+            if (scope.itemTemplate && scope.itemController && !controllerInstance) {
+                element.html(scope.itemTemplate);
+                var locals = {};
+                angular.extend(locals, {$scope: scope, $element: element});
+                var controller = $controller(scope.itemController, locals, true, 'vm');
+                controller.instance = controller();
+                controllerInstance = controller.instance;
+                controllerInstance.item = scope.item;
+                controllerInstance.parentCtl = scope.parentCtl;
+                $compile(element.contents())(scope);
+            }
+        }
     };
 
     return {
@@ -61,6 +101,7 @@ function GridCardContent($compile) {
             parentCtl: "=parentCtl",
             gridCtl: "=gridCtl",
             itemTemplate: "=itemTemplate",
+            itemController: "=itemController",
             item: "=item"
         }
     };
@@ -84,7 +125,7 @@ function Grid() {
 }
 
 /*@ngInject*/
-function GridController($scope, $state, $mdDialog, $document, $q, $timeout, $translate, $mdMedia, $templateCache) {
+function GridController($scope, $state, $mdDialog, $document, $q, $mdUtil, $timeout, $translate, $mdMedia, $templateCache, $window) {
 
     var vm = this;
 
@@ -115,6 +156,7 @@ function GridController($scope, $state, $mdDialog, $document, $q, $timeout, $tra
     vm.refreshList = refreshList;
     vm.saveItem = saveItem;
     vm.toggleItemSelection = toggleItemSelection;
+    vm.triggerResize = triggerResize;
 
     $scope.$watch(function () {
         return $mdMedia('xs') || $mdMedia('sm');
@@ -157,7 +199,7 @@ function GridController($scope, $state, $mdDialog, $document, $q, $timeout, $tra
         },
 
         getLength: function () {
-            if (vm.items.hasNext) {
+            if (vm.items.hasNext && !vm.items.pending) {
                 return vm.items.rowData.length + pageSize;
             } else {
                 return vm.items.rowData.length;
@@ -166,31 +208,40 @@ function GridController($scope, $state, $mdDialog, $document, $q, $timeout, $tra
 
         fetchMoreItems_: function () {
             if (vm.items.hasNext && !vm.items.pending) {
-                var promise = vm.fetchItemsFunc(vm.items.nextPageLink);
+                var promise = vm.fetchItemsFunc(vm.items.nextPageLink, $scope.searchConfig.searchEntitySubtype);
                 if (promise) {
                     vm.items.pending = true;
                     promise.then(
                         function success(items) {
-                            vm.items.data = vm.items.data.concat(items.data);
-                            var startIndex = vm.items.data.length - items.data.length;
-                            var endIndex = vm.items.data.length;
-                            for (var i = startIndex; i < endIndex; i++) {
-                                var item = vm.items.data[i];
-                                item.index = i;
-                                var row = Math.floor(i / vm.columns);
-                                var itemRow = vm.items.rowData[row];
-                                if (!itemRow) {
-                                    itemRow = [];
-                                    vm.items.rowData.push(itemRow);
+                            if (vm.items.reloadPending) {
+                                vm.items.pending = false;
+                                reload();
+                            } else {
+                                vm.items.data = vm.items.data.concat(items.data);
+                                var startIndex = vm.items.data.length - items.data.length;
+                                var endIndex = vm.items.data.length;
+                                for (var i = startIndex; i < endIndex; i++) {
+                                    var item = vm.items.data[i];
+                                    item.index = i;
+                                    var row = Math.floor(i / vm.columns);
+                                    var itemRow = vm.items.rowData[row];
+                                    if (!itemRow) {
+                                        itemRow = [];
+                                        vm.items.rowData.push(itemRow);
+                                    }
+                                    itemRow.push(item);
                                 }
-                                itemRow.push(item);
+                                vm.items.nextPageLink = items.nextPageLink;
+                                vm.items.hasNext = items.hasNext;
+                                if (vm.items.hasNext) {
+                                    vm.items.nextPageLink.limit = pageSize;
+                                }
+                                vm.items.pending = false;
+                                if (vm.items.loadCallback) {
+                                    vm.items.loadCallback();
+                                    vm.items.loadCallback = null;
+                                }
                             }
-                            vm.items.nextPageLink = items.nextPageLink;
-                            vm.items.hasNext = items.hasNext;
-                            if (vm.items.hasNext) {
-                                vm.items.nextPageLink.limit = pageSize;
-                            }
-                            vm.items.pending = false;
                         },
                         function fail() {
                             vm.items.hasNext = false;
@@ -269,6 +320,10 @@ function GridController($scope, $state, $mdDialog, $document, $q, $timeout, $tra
                 return $q.when([]);
             };
 
+        vm.loadItemDetailsFunc = vm.config.loadItemDetailsFunc || function (item) {
+                return $q.when(item);
+            };
+
         vm.saveItemFunc = vm.config.saveItemFunc || function (item) {
                 return $q.when(item);
             };
@@ -286,6 +341,16 @@ function GridController($scope, $state, $mdDialog, $document, $q, $timeout, $tra
             vm.itemCardTemplate = vm.config.itemCardTemplate;
         } else if (vm.config.itemCardTemplateUrl) {
             vm.itemCardTemplate = $templateCache.get(vm.config.itemCardTemplateUrl);
+        }
+        if (vm.config.itemCardController) {
+            vm.itemCardController =  vm.config.itemCardController;
+        } else {
+            vm.itemCardController = 'ItemCardController';
+        }
+        if (vm.config.addItemController) {
+            vm.addItemController =  vm.config.addItemController;
+        } else {
+            vm.addItemController = 'AddItemController';
         }
 
         vm.parentCtl = vm.config.parentCtl || vm;
@@ -376,33 +441,62 @@ function GridController($scope, $state, $mdDialog, $document, $q, $timeout, $tra
     }
 
     $scope.$on('searchTextUpdated', function () {
-        vm.items = {
-            data: [],
-            rowData: [],
-            nextPageLink: {
-                limit: pageSize,
-                textSearch: $scope.searchConfig.searchText
-            },
-            selections: {},
-            selectedCount: 0,
-            hasNext: true,
-            pending: false
-        };
-        vm.detailsConfig.isDetailsOpen = false;
-        vm.itemRows.getItemAtIndex(pageSize);
+        reload();
+    });
+
+    $scope.$on('searchEntitySubtypeUpdated', function () {
+        reload();
     });
 
     vm.onGridInited(vm);
 
     vm.itemRows.getItemAtIndex(pageSize);
 
+    function reload() {
+        if (vm.items && vm.items.pending) {
+            vm.items.reloadPending = true;
+        } else {
+            vm.items.data.length = 0;
+            vm.items.rowData.length = 0;
+            vm.items.nextPageLink = {
+                limit: pageSize,
+                textSearch: $scope.searchConfig.searchText
+            };
+            vm.items.selections = {};
+            vm.items.selectedCount = 0;
+            vm.items.hasNext = true;
+            vm.items.pending = false;
+            vm.detailsConfig.isDetailsOpen = false;
+            vm.items.reloadPending = false;
+            vm.itemRows.getItemAtIndex(pageSize);
+        }
+    }
+
     function refreshList() {
-        $state.go($state.current, vm.refreshParamsFunc(), {reload: true});
+        let preservedTopIndex = vm.topIndex;
+        vm.items.data.length = 0;
+        vm.items.rowData.length = 0;
+        vm.items.nextPageLink = {
+            limit: preservedTopIndex + pageSize,
+            textSearch: $scope.searchConfig.searchText
+        };
+        vm.items.selections = {};
+        vm.items.selectedCount = 0;
+        vm.items.hasNext = true;
+        vm.items.pending = false;
+        vm.detailsConfig.isDetailsOpen = false;
+        vm.items.reloadPending = false;
+        vm.items.loadCallback = () => {
+            $mdUtil.nextTick(() => {
+                moveToIndex(preservedTopIndex);
+            });
+        };
+        vm.itemRows.getItemAtIndex(preservedTopIndex+pageSize);
     }
 
     function addItem($event) {
         $mdDialog.show({
-            controller: AddItemController,
+            controller: vm.addItemController,
             controllerAs: 'vm',
             templateUrl: vm.addItemTemplateUrl,
             parent: angular.element($document[0].body),
@@ -423,9 +517,12 @@ function GridController($scope, $state, $mdDialog, $document, $q, $timeout, $tra
                 return;
             }
         }
-        vm.detailsConfig.currentItem = item;
-        vm.detailsConfig.isDetailsEditMode = false;
-        vm.detailsConfig.isDetailsOpen = true;
+        vm.loadItemDetailsFunc(item).then(function success(detailsItem) {
+            detailsItem.index = item.index;
+            vm.detailsConfig.currentItem = detailsItem;
+            vm.detailsConfig.isDetailsEditMode = false;
+            vm.detailsConfig.isDetailsOpen = true;
+        });
     }
 
     function isCurrentItem(item) {
@@ -530,6 +627,11 @@ function GridController($scope, $state, $mdDialog, $document, $q, $timeout, $tra
             delete vm.items.selections[item.id.id];
             vm.items.selectedCount--;
         }
+    }
+
+    function triggerResize() {
+        var w = angular.element($window);
+        w.triggerHandler('resize');
     }
 
     function moveToTop() {

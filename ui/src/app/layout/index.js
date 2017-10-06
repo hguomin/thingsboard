@@ -26,16 +26,22 @@ import thingsboardApiLogin from '../api/login.service';
 import thingsboardApiUser from '../api/user.service';
 
 import thingsboardNoAnimate from '../components/no-animate.directive';
+import thingsboardOnFinishRender from '../components/finish-render.directive';
 import thingsboardSideMenu from '../components/side-menu.directive';
+import thingsboardDashboardAutocomplete from '../components/dashboard-autocomplete.directive';
 
 import thingsboardUserMenu from './user-menu.directive';
 
+import thingsboardEntity from '../entity';
+import thingsboardEvent from '../event';
+import thingsboardAlarm from '../alarm';
 import thingsboardTenant from '../tenant';
 import thingsboardCustomer from '../customer';
 import thingsboardUser from '../user';
 import thingsboardHomeLinks from '../home';
 import thingsboardAdmin from '../admin';
 import thingsboardProfile from '../profile';
+import thingsboardAsset from '../asset';
 import thingsboardDevice from '../device';
 import thingsboardWidgetLibrary from '../widget';
 import thingsboardDashboard from '../dashboard';
@@ -57,11 +63,15 @@ export default angular.module('thingsboard.home', [
     thingsboardMenu,
     thingsboardHomeLinks,
     thingsboardUserMenu,
+    thingsboardEntity,
+    thingsboardEvent,
+    thingsboardAlarm,
     thingsboardTenant,
     thingsboardCustomer,
     thingsboardUser,
     thingsboardAdmin,
     thingsboardProfile,
+    thingsboardAsset,
     thingsboardDevice,
     thingsboardWidgetLibrary,
     thingsboardDashboard,
@@ -72,7 +82,9 @@ export default angular.module('thingsboard.home', [
     thingsboardApiLogin,
     thingsboardApiUser,
     thingsboardNoAnimate,
-    thingsboardSideMenu
+    thingsboardOnFinishRender,
+    thingsboardSideMenu,
+    thingsboardDashboardAutocomplete
 ])
     .config(HomeRoutes)
     .controller('HomeController', HomeController)

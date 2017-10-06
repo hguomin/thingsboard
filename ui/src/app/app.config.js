@@ -14,6 +14,11 @@
  * limitations under the License.
  */
 import injectTapEventPlugin from 'react-tap-event-plugin';
+import UrlHandler from './url.handler';
+import addLocaleKorean from './locale/locale.constant-ko';
+import addLocaleChinese from './locale/locale.constant-zh';
+import addLocaleRussian from './locale/locale.constant-ru';
+import addLocaleSpanish from './locale/locale.constant-es';
 
 /* eslint-disable import/no-unresolved, import/default */
 
@@ -38,14 +43,32 @@ export default function AppConfig($provide,
 
     injectTapEventPlugin();
     $locationProvider.html5Mode(true);
-    //$urlRouterProvider.otherwise('/home');
+    $urlRouterProvider.otherwise(UrlHandler);
     storeProvider.setCaching(false);
 
-    $translateProvider.useSanitizeValueStrategy('sanitize');
+    $translateProvider.useSanitizeValueStrategy('sce');
     $translateProvider.preferredLanguage('en_US');
     $translateProvider.useLocalStorage();
-    $translateProvider.useMissingTranslationHandlerLog();
+    $translateProvider.useMissingTranslationHandler('tbMissingTranslationHandler');
     $translateProvider.addInterpolation('$translateMessageFormatInterpolation');
+
+    addLocaleKorean(locales);
+    addLocaleChinese(locales);
+    addLocaleRussian(locales);
+    addLocaleSpanish(locales);
+
+    var $window = angular.injector(['ng']).get('$window');
+    var lang = $window.navigator.language || $window.navigator.userLanguage;
+    if (lang === 'ko') {
+        $translateProvider.useSanitizeValueStrategy(null);
+        $translateProvider.preferredLanguage('ko_KR');
+    } else if (lang === 'zh') {
+        $translateProvider.useSanitizeValueStrategy(null);
+        $translateProvider.preferredLanguage('zh_CN');
+    } else if (lang === 'es') {
+        $translateProvider.useSanitizeValueStrategy(null);
+        $translateProvider.preferredLanguage('es_ES');
+    }
 
     for (var langKey in locales) {
         var translationTable = locales[langKey];
@@ -136,10 +159,6 @@ export default function AppConfig($provide,
         } else {
             indigoTheme();
         }
-
-        $mdThemingProvider.theme('tb-search-input', 'default')
-            .primaryPalette('tb-primary')
-            .backgroundPalette('tb-primary');
 
         $mdThemingProvider.setDefaultTheme('default');
         //$mdThemingProvider.alwaysWatchTheme(true);

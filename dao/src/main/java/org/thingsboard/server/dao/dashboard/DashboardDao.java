@@ -15,20 +15,13 @@
  */
 package org.thingsboard.server.dao.dashboard;
 
-import java.util.List;
-import java.util.UUID;
-
 import org.thingsboard.server.common.data.Dashboard;
-import org.thingsboard.server.common.data.page.TextPageLink;
 import org.thingsboard.server.dao.Dao;
-import org.thingsboard.server.dao.model.DashboardEntity;
 
 /**
  * The Interface DashboardDao.
- *
- * @param <T> the generic type
  */
-public interface DashboardDao extends Dao<DashboardEntity> {
+public interface DashboardDao extends Dao<Dashboard> {
 
     /**
      * Save or update dashboard object
@@ -36,25 +29,6 @@ public interface DashboardDao extends Dao<DashboardEntity> {
      * @param dashboard the dashboard object
      * @return saved dashboard object
      */
-    DashboardEntity save(Dashboard dashboard);
+    Dashboard save(Dashboard dashboard);
 
-    /**
-     * Find dashboards by tenantId and page link.
-     *
-     * @param tenantId the tenantId
-     * @param pageLink the page link
-     * @return the list of dashboard objects
-     */
-    List<DashboardEntity> findDashboardsByTenantId(UUID tenantId, TextPageLink pageLink);
-    
-    /**
-     * Find dashboards by tenantId, customerId and page link.
-     *
-     * @param tenantId the tenantId
-     * @param customerId the customerId
-     * @param pageLink the page link
-     * @return the list of dashboard objects
-     */
-    List<DashboardEntity> findDashboardsByTenantIdAndCustomerId(UUID tenantId, UUID customerId, TextPageLink pageLink);
-    
 }

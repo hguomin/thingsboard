@@ -18,7 +18,9 @@ package org.thingsboard.server.controller;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.thingsboard.server.common.data.Customer;
 import org.thingsboard.server.common.data.Dashboard;
+import org.thingsboard.server.common.data.DashboardInfo;
 import org.thingsboard.server.common.data.id.CustomerId;
 import org.thingsboard.server.common.data.id.DashboardId;
 import org.thingsboard.server.common.data.id.TenantId;
@@ -32,6 +34,8 @@ import org.thingsboard.server.exception.ThingsboardException;
 @RequestMapping("/api")
 public class DashboardController extends BaseController {
 
+    public static final String DASHBOARD_ID = "dashboardId";
+
     @PreAuthorize("hasAnyAuthority('SYS_ADMIN', 'TENANT_ADMIN', 'CUSTOMER_USER')")
     @RequestMapping(value = "/dashboard/serverTime", method = RequestMethod.GET)
     @ResponseBody
@@ -39,11 +43,24 @@ public class DashboardController extends BaseController {
         return System.currentTimeMillis();
     }
 
+    @PreAuthorize("hasAnyAuthority('SYS_ADMIN', 'TENANT_ADMIN', 'CUSTOMER_USER')")
+    @RequestMapping(value = "/dashboard/info/{dashboardId}", method = RequestMethod.GET)
+    @ResponseBody
+    public DashboardInfo getDashboardInfoById(@PathVariable(DASHBOARD_ID) String strDashboardId) throws ThingsboardException {
+        checkParameter(DASHBOARD_ID, strDashboardId);
+        try {
+            DashboardId dashboardId = new DashboardId(toUUID(strDashboardId));
+            return checkDashboardInfoId(dashboardId);
+        } catch (Exception e) {
+            throw handleException(e);
+        }
+    }
+
     @PreAuthorize("hasAnyAuthority('TENANT_ADMIN', 'CUSTOMER_USER')")
     @RequestMapping(value = "/dashboard/{dashboardId}", method = RequestMethod.GET)
     @ResponseBody
-    public Dashboard getDashboardById(@PathVariable("dashboardId") String strDashboardId) throws ThingsboardException {
-        checkParameter("dashboardId", strDashboardId);
+    public Dashboard getDashboardById(@PathVariable(DASHBOARD_ID) String strDashboardId) throws ThingsboardException {
+        checkParameter(DASHBOARD_ID, strDashboardId);
         try {
             DashboardId dashboardId = new DashboardId(toUUID(strDashboardId));
             return checkDashboardId(dashboardId);
@@ -67,8 +84,8 @@ public class DashboardController extends BaseController {
     @PreAuthorize("hasAuthority('TENANT_ADMIN')")
     @RequestMapping(value = "/dashboard/{dashboardId}", method = RequestMethod.DELETE)
     @ResponseStatus(value = HttpStatus.OK)
-    public void deleteDashboard(@PathVariable("dashboardId") String strDashboardId) throws ThingsboardException {
-        checkParameter("dashboardId", strDashboardId);
+    public void deleteDashboard(@PathVariable(DASHBOARD_ID) String strDashboardId) throws ThingsboardException {
+        checkParameter(DASHBOARD_ID, strDashboardId);
         try {
             DashboardId dashboardId = new DashboardId(toUUID(strDashboardId));
             checkDashboardId(dashboardId);
@@ -82,9 +99,9 @@ public class DashboardController extends BaseController {
     @RequestMapping(value = "/customer/{customerId}/dashboard/{dashboardId}", method = RequestMethod.POST)
     @ResponseBody 
     public Dashboard assignDashboardToCustomer(@PathVariable("customerId") String strCustomerId,
-                                         @PathVariable("dashboardId") String strDashboardId) throws ThingsboardException {
+                                         @PathVariable(DASHBOARD_ID) String strDashboardId) throws ThingsboardException {
         checkParameter("customerId", strCustomerId);
-        checkParameter("dashboardId", strDashboardId);
+        checkParameter(DASHBOARD_ID, strDashboardId);
         try {
             CustomerId customerId = new CustomerId(toUUID(strCustomerId));
             checkCustomerId(customerId);
@@ -101,8 +118,8 @@ public class DashboardController extends BaseController {
     @PreAuthorize("hasAuthority('TENANT_ADMIN')")
     @RequestMapping(value = "/customer/dashboard/{dashboardId}", method = RequestMethod.DELETE)
     @ResponseBody 
-    public Dashboard unassignDashboardFromCustomer(@PathVariable("dashboardId") String strDashboardId) throws ThingsboardException {
-        checkParameter("dashboardId", strDashboardId);
+    public Dashboard unassignDashboardFromCustomer(@PathVariable(DASHBOARD_ID) String strDashboardId) throws ThingsboardException {
+        checkParameter(DASHBOARD_ID, strDashboardId);
         try {
             DashboardId dashboardId = new DashboardId(toUUID(strDashboardId));
             Dashboard dashboard = checkDashboardId(dashboardId);
@@ -116,9 +133,43 @@ public class DashboardController extends BaseController {
     }
 
     @PreAuthorize("hasAuthority('TENANT_ADMIN')")
+    @RequestMapping(value = "/customer/public/dashboard/{dashboardId}", method = RequestMethod.POST)
+    @ResponseBody
+    public Dashboard assignDashboardToPublicCustomer(@PathVariable(DASHBOARD_ID) String strDashboardId) throws ThingsboardException {
+        checkParameter(DASHBOARD_ID, strDashboardId);
+        try {
+            DashboardId dashboardId = new DashboardId(toUUID(strDashboardId));
+            Dashboard dashboard = checkDashboardId(dashboardId);
+            Customer publicCustomer = customerService.findOrCreatePublicCustomer(dashboard.getTenantId());
+            return checkNotNull(dashboardService.assignDashboardToCustomer(dashboardId, publicCustomer.getId()));
+        } catch (Exception e) {
+            throw handleException(e);
+        }
+    }
+
+    @PreAuthorize("hasAuthority('SYS_ADMIN')")
+    @RequestMapping(value = "/tenant/{tenantId}/dashboards", params = { "limit" }, method = RequestMethod.GET)
+    @ResponseBody
+    public TextPageData<DashboardInfo> getTenantDashboards(
+            @PathVariable("tenantId") String strTenantId,
+            @RequestParam int limit,
+            @RequestParam(required = false) String textSearch,
+            @RequestParam(required = false) String idOffset,
+            @RequestParam(required = false) String textOffset) throws ThingsboardException {
+        try {
+            TenantId tenantId = new TenantId(toUUID(strTenantId));
+            checkTenantId(tenantId);
+            TextPageLink pageLink = createPageLink(limit, textSearch, idOffset, textOffset);
+            return checkNotNull(dashboardService.findDashboardsByTenantId(tenantId, pageLink));
+        } catch (Exception e) {
+            throw handleException(e);
+        }
+    }
+
+    @PreAuthorize("hasAuthority('TENANT_ADMIN')")
     @RequestMapping(value = "/tenant/dashboards", params = { "limit" }, method = RequestMethod.GET)
     @ResponseBody
-    public TextPageData<Dashboard> getTenantDashboards(
+    public TextPageData<DashboardInfo> getTenantDashboards(
             @RequestParam int limit,
             @RequestParam(required = false) String textSearch,
             @RequestParam(required = false) String idOffset,
@@ -135,7 +186,7 @@ public class DashboardController extends BaseController {
     @PreAuthorize("hasAnyAuthority('TENANT_ADMIN', 'CUSTOMER_USER')")
     @RequestMapping(value = "/customer/{customerId}/dashboards", params = { "limit" }, method = RequestMethod.GET)
     @ResponseBody
-    public TextPageData<Dashboard> getCustomerDashboards(
+    public TextPageData<DashboardInfo> getCustomerDashboards(
             @PathVariable("customerId") String strCustomerId,
             @RequestParam int limit,
             @RequestParam(required = false) String textSearch,
